@@ -1,0 +1,19 @@
+# Python bytecode caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+
+# Build and distribution files
+build/
+dist/
+*.egg-info/
+
+# IDE and local configuration caches
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.DS_Store
