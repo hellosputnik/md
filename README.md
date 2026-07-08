@@ -2,10 +2,29 @@
 
 A clean, simple terminal markdown viewer with a pager, search, syntax highlighting, and Vim-like controls.
 
+## Requirements
+
+- [uv](https://docs.astral.sh/uv/)
+
 ## Installation
 
+Install from GitHub:
+
 ```bash
-uv pip install -e .
+uv tool install git+https://github.com/hellosputnik/md.git
+```
+
+Install from source:
+
+```bash
+git clone https://github.com/hellosputnik/md.git && cd md
+uv tool install .
+```
+
+Run without installation:
+
+```bash
+uvx --from git+https://github.com/hellosputnik/md.git md README.md
 ```
 
 ## Usage
