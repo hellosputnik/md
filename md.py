@@ -1,6 +1,7 @@
 #!/usr/bin/env uv run --script
 
 # /// script
+# requires-python = ">=3.10"
 # dependencies = [
 #     "rich>=13.0.0",
 #     "click>=8.0.0",
@@ -19,6 +20,7 @@ import webbrowser
 import click
 import rich.console
 import rich.markdown
+import rich.segment
 import rich.syntax
 
 DEFAULT_THEME = "ansi_dark"
@@ -656,35 +658,132 @@ def parse_headers(markdown_text: str) -> list[dict]:
     return headers
 
 
+class IndentedCodeBlock(rich.markdown.CodeBlock):
+    """Code block whose content is indented four spaces instead of rich's one space."""
+
+    def __rich_console__(
+        self, console: rich.console.Console, options: rich.console.ConsoleOptions
+    ) -> rich.console.RenderResult:
+        code_text = str(self.text).rstrip()
+        # padding=(top, right, bottom, left): only the left inset grows, to 4
+        syntax_element = rich.syntax.Syntax(
+            code_text,
+            self.lexer_name,
+            theme=self.theme,
+            word_wrap=True,
+            padding=(1, 1, 1, 4),
+        )
+        yield syntax_element
+
+
+class IndentedListItem(rich.markdown.ListItem):
+    """List item whose bullet/number is indented two spaces instead of rich's one space."""
+
+    def render_bullet(
+        self, console: rich.console.Console, options: rich.console.ConsoleOptions
+    ) -> rich.console.RenderResult:
+        marker = "  • "
+        render_options = options.update(width=options.max_width - len(marker))
+        lines = console.render_lines(self.elements, render_options, style=self.style)
+        bullet_style = console.get_style("markdown.item.bullet", default="none")
+        bullet = rich.segment.Segment(marker, bullet_style)
+        padding = rich.segment.Segment(" " * len(marker), bullet_style)
+        new_line = rich.segment.Segment("\n")
+        for index, line in enumerate(lines):
+            yield bullet if index == 0 else padding
+            yield from line
+            yield new_line
+
+    def render_number(
+        self,
+        console: rich.console.Console,
+        options: rich.console.ConsoleOptions,
+        number: int,
+        last_number: int,
+    ) -> rich.console.RenderResult:
+        # +3 (vs rich's default +2) puts two leading spaces before the number
+        number_width = len(str(last_number)) + 3
+        render_options = options.update(width=options.max_width - number_width)
+        lines = console.render_lines(self.elements, render_options, style=self.style)
+        number_style = console.get_style("markdown.item.number", default="none")
+        new_line = rich.segment.Segment("\n")
+        padding = rich.segment.Segment(" " * number_width, number_style)
+        numeral = rich.segment.Segment(
+            f"{number}".rjust(number_width - 1) + " ", number_style
+        )
+        for index, line in enumerate(lines):
+            yield numeral if index == 0 else padding
+            yield from line
+            yield new_line
+
+
+class IndentedMarkdown(rich.markdown.Markdown):
+    """Markdown renderer that indents code blocks and list items further than rich's defaults."""
+
+    elements = {
+        **rich.markdown.Markdown.elements,
+        "fence": IndentedCodeBlock,
+        "code_block": IndentedCodeBlock,
+        "list_item_open": IndentedListItem,
+    }
+
+
 def render_markdown(markdown_text: str, width: int, theme: str) -> list[str]:
     """Render markdown to text with ANSI escape codes for the specified width."""
     console = rich.console.Console(width=width, force_terminal=True)
-    markdown_element = rich.markdown.Markdown(markdown_text, code_theme=theme)
+    markdown_element = IndentedMarkdown(markdown_text, code_theme=theme)
     with console.capture() as capture:
         console.print(markdown_element)
 
     rendered_output = capture.get()
-    return rendered_output.splitlines()
+    # Trailing blank line so content isn't flush against the terminal bottom
+    return rendered_output.splitlines() + [""]
 
 
 def render_raw_markdown(
     markdown_text: str, width: int, theme: str, line_numbers: bool = False
 ) -> list[str]:
-    """Render raw markdown text with syntax highlighting, wrapping, and optional line numbers."""
-    console = rich.console.Console(width=width, force_terminal=True)
+    """Render raw markdown with syntax highlighting, wrapping, and a fixed gutter.
+
+    The gutter is sized to the digit count of the last line (Neovim's numberwidth
+    approach) and is always reserved, so toggling line numbers never shifts the
+    text. When line_numbers is False the numbers are blank but the separator stays.
+    """
     syntax_element = rich.syntax.Syntax(
         markdown_text,
         lexer="markdown",
         theme=theme,
-        word_wrap=True,
-        line_numbers=line_numbers,
         background_color="default",
     )
-    with console.capture() as capture:
-        console.print(syntax_element)
+    # Highlight the whole doc once (keeps lexer context across code fences),
+    # then split into per-source-line styled text
+    highlighted_text = syntax_element.highlight(markdown_text)
+    highlighted_text.rstrip()
+    source_lines = highlighted_text.split("\n")
 
-    rendered_output = capture.get()
-    return rendered_output.splitlines()
+    number_width = len(str(len(source_lines)))
+    # Gutter "<number> │ ": only the separator is dimmed, so toggling the numbers
+    # stays visible while the width (and therefore the text column) never changes
+    separator = " \x1b[90m│\x1b[0m "
+    gutter_width = number_width + 3
+    content_width = max(1, width - gutter_width)
+
+    console = rich.console.Console(width=content_width, force_terminal=True)
+    rendered_lines = []
+    for line_number, line_text in enumerate(source_lines, start=1):
+        with console.capture() as capture:
+            console.print(line_text, end="")
+        # Only the first wrapped row carries the number; continuation rows keep
+        # a blank gutter so the text column stays aligned
+        wrapped_rows = capture.get().split("\n")
+        for row_index, wrapped_row in enumerate(wrapped_rows):
+            label = str(line_number) if line_numbers and row_index == 0 else ""
+            gutter = f"{label:>{number_width}}{separator}"
+            rendered_lines.append(f"{gutter}{wrapped_row}")
+
+    # Trailing blank line so content isn't flush against the terminal bottom
+    rendered_lines.append("")
+    return rendered_lines
 
 
 def extract_links(rendered_lines: list[str]) -> list[dict]:
