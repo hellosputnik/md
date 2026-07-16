@@ -650,6 +650,8 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     )
                     scroll_offset = search_matches[current_match_index]
 
+    except KeyboardInterrupt:
+        pass
     finally:
         # Restore normal terminal settings, main screen buffer, and show cursor
         termios.tcsetattr(file_descriptor, termios.TCSADRAIN, old_settings)
