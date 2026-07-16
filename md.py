@@ -34,7 +34,12 @@ DEFAULT_THEME = "ansi_dark"
     is_flag=True,
     help="Watch file for writes and reload dynamically.",
 )
-def main(files: tuple[str, ...], watch: bool) -> None:
+@click.option(
+    "--no-color",
+    is_flag=True,
+    help="Disable color and style in output.",
+)
+def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
     """A clean, simple terminal markdown viewer with a pager, search, syntax highlighting, and Vim-like controls.
 
     Examples:
@@ -120,7 +125,16 @@ def main(files: tuple[str, ...], watch: bool) -> None:
             sys.stderr.write(f"Error reading '{file_path}': {error}\n")
             sys.exit(1)
 
-    is_interactive = sys.stdout.isatty() and sys.stdin.isatty()
+    use_color = (
+        sys.stdout.isatty()
+        and not no_color
+        and not os.environ.get("NO_COLOR")
+        and os.environ.get("TERM") != "dumb"
+    )
+
+    is_interactive = (
+        sys.stdout.isatty() and sys.stdin.isatty() and os.environ.get("TERM") != "dumb"
+    )
 
     # If stdin was redirected, try to reopen /dev/tty for interactive keyboard control
     if is_interactive and not sys.stdin.isatty():
@@ -138,7 +152,9 @@ def main(files: tuple[str, ...], watch: bool) -> None:
             width = 80
         left_margin = 2 if width > 40 else 0
         render_width = width - (left_margin * 2)
-        rendered_lines = render_markdown(markdown_text, render_width, theme)
+        rendered_lines = render_markdown(
+            markdown_text, render_width, theme, use_color=use_color
+        )
         margin_spaces = " " * left_margin
         for line in rendered_lines:
             sys.stdout.write(f"{margin_spaces}{line}\n")
@@ -165,7 +181,9 @@ def main(files: tuple[str, ...], watch: bool) -> None:
 
         left_margin = 2 if current_width > 40 else 0
         render_width = current_width - (left_margin * 2)
-        rendered_lines = render_markdown(markdown_text, render_width, theme)
+        rendered_lines = render_markdown(
+            markdown_text, render_width, theme, use_color=use_color
+        )
 
         scroll_offset = 0
         search_query = None
@@ -197,6 +215,7 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                 document_links,
                 None if raw_mode else selected_link_index,
                 status_message,
+                use_color,
             )
             if watch_flag and file_path:
                 # Use short timeout in raw read to run file mtime check every 200ms
@@ -213,7 +232,7 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                         left_margin = 2 if current_width > 40 else 0
                         render_width = current_width - (left_margin * 2)
                         rendered_lines = render_markdown(
-                            markdown_text, render_width, theme
+                            markdown_text, render_width, theme, use_color=use_color
                         )
                         document_links = extract_links(rendered_lines)
 
@@ -223,6 +242,7 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                                 render_width,
                                 theme,
                                 show_line_numbers,
+                                use_color=use_color,
                             )
                         else:
                             raw_lines = None
@@ -254,12 +274,18 @@ def main(files: tuple[str, ...], watch: bool) -> None:
 
                 left_margin = 2 if current_width > 40 else 0
                 render_width = current_width - (left_margin * 2)
-                rendered_lines = render_markdown(markdown_text, render_width, theme)
+                rendered_lines = render_markdown(
+                    markdown_text, render_width, theme, use_color=use_color
+                )
                 document_links = extract_links(rendered_lines)
 
                 if raw_mode:
                     raw_lines = render_raw_markdown(
-                        markdown_text, render_width, theme, show_line_numbers
+                        markdown_text,
+                        render_width,
+                        theme,
+                        show_line_numbers,
+                        use_color=use_color,
                     )
                 else:
                     raw_lines = None
@@ -306,7 +332,7 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                 case "\x1b[F" | "G" | "\x1b[4~" | "\x1bOF":
                     scroll_offset = max_scroll
                 case "?":
-                    draw_help(current_width, current_height)
+                    draw_help(current_width, current_height, use_color=use_color)
                     read_key()
                     try:
                         termios.tcflush(sys.stdin.fileno(), termios.TCIFLUSH)
@@ -316,7 +342,11 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     raw_mode = not raw_mode
                     if raw_mode and raw_lines is None:
                         raw_lines = render_raw_markdown(
-                            markdown_text, render_width, theme, show_line_numbers
+                            markdown_text,
+                            render_width,
+                            theme,
+                            show_line_numbers,
+                            use_color=use_color,
                         )
 
                     if raw_mode:
@@ -356,12 +386,18 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     headers = parse_headers(markdown_text)
                     left_margin = 2 if current_width > 40 else 0
                     render_width = current_width - (left_margin * 2)
-                    rendered_lines = render_markdown(markdown_text, render_width, theme)
+                    rendered_lines = render_markdown(
+                        markdown_text, render_width, theme, use_color=use_color
+                    )
                     document_links = extract_links(rendered_lines)
 
                     if raw_mode:
                         raw_lines = render_raw_markdown(
-                            markdown_text, render_width, theme, show_line_numbers
+                            markdown_text,
+                            render_width,
+                            theme,
+                            show_line_numbers,
+                            use_color=use_color,
                         )
                     else:
                         raw_lines = None
@@ -406,12 +442,18 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     headers = parse_headers(markdown_text)
                     left_margin = 2 if current_width > 40 else 0
                     render_width = current_width - (left_margin * 2)
-                    rendered_lines = render_markdown(markdown_text, render_width, theme)
+                    rendered_lines = render_markdown(
+                        markdown_text, render_width, theme, use_color=use_color
+                    )
                     document_links = extract_links(rendered_lines)
 
                     if raw_mode:
                         raw_lines = render_raw_markdown(
-                            markdown_text, render_width, theme, show_line_numbers
+                            markdown_text,
+                            render_width,
+                            theme,
+                            show_line_numbers,
+                            use_color=use_color,
                         )
                     else:
                         raw_lines = None
@@ -433,7 +475,11 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     if raw_mode:
                         show_line_numbers = not show_line_numbers
                         raw_lines = render_raw_markdown(
-                            markdown_text, render_width, theme, show_line_numbers
+                            markdown_text,
+                            render_width,
+                            theme,
+                            show_line_numbers,
+                            use_color=use_color,
                         )
                         active_lines = raw_lines if raw_mode else rendered_lines
                         max_scroll = max(0, len(active_lines) - content_height)
@@ -444,7 +490,11 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                         )
                 case "o":
                     jump_line = show_outline(
-                        headers, active_lines, current_width, current_height
+                        headers,
+                        active_lines,
+                        current_width,
+                        current_height,
+                        use_color=use_color,
                     )
                     # Flush stdin buffer to discard extra Enter keypresses
                     try:
@@ -568,7 +618,10 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                                     left_margin = 2 if current_width > 40 else 0
                                     render_width = current_width - (left_margin * 2)
                                     rendered_lines = render_markdown(
-                                        markdown_text, render_width, theme
+                                        markdown_text,
+                                        render_width,
+                                        theme,
+                                        use_color=use_color,
                                     )
                                     document_links = extract_links(rendered_lines)
 
@@ -578,6 +631,7 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                                             render_width,
                                             theme,
                                             show_line_numbers,
+                                            use_color=use_color,
                                         )
                                     else:
                                         raw_lines = None
@@ -612,12 +666,18 @@ def main(files: tuple[str, ...], watch: bool) -> None:
                     headers = parse_headers(markdown_text)
                     left_margin = 2 if current_width > 40 else 0
                     render_width = current_width - (left_margin * 2)
-                    rendered_lines = render_markdown(markdown_text, render_width, theme)
+                    rendered_lines = render_markdown(
+                        markdown_text, render_width, theme, use_color=use_color
+                    )
                     document_links = extract_links(rendered_lines)
 
                     if raw_mode:
                         raw_lines = render_raw_markdown(
-                            markdown_text, render_width, theme, show_line_numbers
+                            markdown_text,
+                            render_width,
+                            theme,
+                            show_line_numbers,
+                            use_color=use_color,
                         )
                     else:
                         raw_lines = None
@@ -752,9 +812,13 @@ class IndentedMarkdown(rich.markdown.Markdown):
     }
 
 
-def render_markdown(markdown_text: str, width: int, theme: str) -> list[str]:
+def render_markdown(
+    markdown_text: str, width: int, theme: str, use_color: bool = True
+) -> list[str]:
     """Render markdown to text with ANSI escape codes for the specified width."""
-    console = rich.console.Console(width=width, force_terminal=True)
+    console = rich.console.Console(
+        width=width, force_terminal=use_color, no_color=not use_color
+    )
     markdown_element = IndentedMarkdown(markdown_text, code_theme=theme)
     with console.capture() as capture:
         console.print(markdown_element)
@@ -765,7 +829,11 @@ def render_markdown(markdown_text: str, width: int, theme: str) -> list[str]:
 
 
 def render_raw_markdown(
-    markdown_text: str, width: int, theme: str, line_numbers: bool = False
+    markdown_text: str,
+    width: int,
+    theme: str,
+    line_numbers: bool = False,
+    use_color: bool = True,
 ) -> list[str]:
     """Render raw markdown with syntax highlighting, wrapping, and a fixed gutter.
 
@@ -788,11 +856,13 @@ def render_raw_markdown(
     number_width = len(str(len(source_lines)))
     # Gutter "<number> │ ": only the separator is dimmed, so toggling the numbers
     # stays visible while the width (and therefore the text column) never changes
-    separator = " \x1b[90m│\x1b[0m "
+    separator = " \x1b[90m│\x1b[0m " if use_color else " │ "
     gutter_width = number_width + 3
     content_width = max(1, width - gutter_width)
 
-    console = rich.console.Console(width=content_width, force_terminal=True)
+    console = rich.console.Console(
+        width=content_width, force_terminal=use_color, no_color=not use_color
+    )
     rendered_lines = []
     for line_number, line_text in enumerate(source_lines, start=1):
         with console.capture() as capture:
@@ -869,6 +939,7 @@ def draw_screen(
     document_links: list[dict],
     selected_link_index: int | None,
     status_message: str | None = None,
+    use_color: bool = True,
 ) -> None:
     """Draw the current visible page of markdown, active link highlights, and the status bar."""
     # Move cursor to home and clear screen
@@ -890,7 +961,8 @@ def draw_screen(
             escaped_pattern = re.escape(link["full_match"])
             pattern = re.compile(escaped_pattern)
             visible_lines[relative_line_index] = pattern.sub(
-                lambda m: f"\x1b[7m{m.group(0)}\x1b[27m", line
+                lambda m: f"\x1b[7m{m.group(0)}\x1b[27m" if use_color else m.group(0),
+                line,
             )
 
     for line in visible_lines:
@@ -937,7 +1009,10 @@ def draw_screen(
 
     # Format status line with inverted colors
     padding_length = terminal_width - len(status_left) - len(status_right)
-    status_line = f"\x1b[7m{status_left}{' ' * padding_length}{status_right}\x1b[0m"
+    if use_color:
+        status_line = f"\x1b[7m{status_left}{' ' * padding_length}{status_right}\x1b[0m"
+    else:
+        status_line = f"{status_left}{' ' * padding_length}{status_right}"
     sys.stdout.write(status_line)
     sys.stdout.flush()
 
@@ -947,6 +1022,7 @@ def show_outline(
     rendered_lines: list[str],
     terminal_width: int,
     terminal_height: int,
+    use_color: bool = True,
 ) -> int | None:
     """Show an overlay menu of headings and let the user select one to jump to."""
     if not headers:
@@ -978,9 +1054,12 @@ def show_outline(
                 line_text = line_text[: terminal_width - 7] + "..."
 
             if global_index == selected_header_index:
-                sys.stdout.write(
-                    f"\x1b[7m{line_text.ljust(terminal_width - 2)}\x1b[0m\n"
-                )
+                if use_color:
+                    sys.stdout.write(
+                        f"\x1b[7m{line_text.ljust(terminal_width - 2)}\x1b[0m\n"
+                    )
+                else:
+                    sys.stdout.write(f"  > {line_text[4:].ljust(terminal_width - 4)}\n")
             else:
                 sys.stdout.write(f"{line_text}\n")
 
@@ -988,9 +1067,12 @@ def show_outline(
             sys.stdout.write("\n")
 
         sys.stdout.write(f"\x1b[{terminal_height};1H\x1b[2K")
-        sys.stdout.write(
-            f"\x1b[7m Selection: {selected_header_index + 1}/{len(headers)} \x1b[0m"
-        )
+        if use_color:
+            sys.stdout.write(
+                f"\x1b[7m Selection: {selected_header_index + 1}/{len(headers)} \x1b[0m"
+            )
+        else:
+            sys.stdout.write(f" Selection: {selected_header_index + 1}/{len(headers)}")
         sys.stdout.flush()
 
         key = read_key()
@@ -1014,7 +1096,9 @@ def show_outline(
                     outline_scroll = selected_header_index - menu_height + 1
 
 
-def draw_help(terminal_width: int, terminal_height: int) -> None:
+def draw_help(
+    terminal_width: int, terminal_height: int, use_color: bool = True
+) -> None:
     """Display the help screen listing available controls."""
     sys.stdout.write("\x1b[H\x1b[2J")
 
@@ -1069,7 +1153,10 @@ def draw_help(terminal_width: int, terminal_height: int) -> None:
         sys.stdout.write("\n")
 
     sys.stdout.write(f"\x1b[{terminal_height};1H\x1b[2K")
-    sys.stdout.write("\x1b[7m Press any key to return... \x1b[0m")
+    if use_color:
+        sys.stdout.write("\x1b[7m Press any key to return... \x1b[0m")
+    else:
+        sys.stdout.write(" Press any key to return... ")
     sys.stdout.flush()
 
 
