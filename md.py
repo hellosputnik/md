@@ -26,7 +26,7 @@ import rich.syntax
 DEFAULT_THEME = "ansi_dark"
 
 
-@click.command()
+@click.command(context_settings=dict(help_option_names=["-h", "--help"]))
 @click.argument("files", nargs=-1, required=False)
 @click.option(
     "-w",
@@ -35,6 +35,28 @@ DEFAULT_THEME = "ansi_dark"
     help="Watch file for writes and reload dynamically.",
 )
 def main(files: tuple[str, ...], watch: bool) -> None:
+    """A clean, simple terminal markdown viewer with a pager, search, syntax highlighting, and Vim-like controls.
+
+    Examples:
+
+      View a file:
+
+        $ md README.md
+
+      View multiple files in buffers:
+
+        $ md README.md index.md
+
+      Watch a file and reload dynamically:
+
+        $ md -w README.md
+
+      Pipe markdown from another command:
+
+        $ cat README.md | md
+
+    Online documentation & feedback: https://github.com/hellosputnik/md
+    """
     files_list = list(files) if files else ["-"]
     watch_flag = watch
     theme = os.environ.get("MD_THEME", DEFAULT_THEME)
