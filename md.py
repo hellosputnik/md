@@ -252,8 +252,14 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
 
                         if search_query is not None:
                             search_matches = perform_search(active_lines, search_query)
-                            if current_match_index >= len(search_matches):
-                                current_match_index = len(search_matches) - 1
+                            if len(search_matches) > 0:
+                                if (
+                                    current_match_index >= len(search_matches)
+                                    or current_match_index == -1
+                                ):
+                                    current_match_index = 0
+                            else:
+                                current_match_index = -1
 
                         content_height = current_height - 1
                         max_scroll = max(0, len(active_lines) - content_height)
@@ -329,6 +335,8 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
                     next_key = read_key(timeout=0.5)
                     if next_key == "g":
                         scroll_offset = 0
+                case "\x1b[H" | "\x1b[1~" | "\x1bOH":
+                    scroll_offset = 0
                 case "\x1b[F" | "G" | "\x1b[4~" | "\x1bOF":
                     scroll_offset = max_scroll
                 case "?":
@@ -412,6 +420,11 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
                     state_key = file_path if file_path else "stdin"
                     if state_key in buffer_states:
                         scroll_offset, selected_link_index = buffer_states[state_key]
+                        if (
+                            selected_link_index is not None
+                            and selected_link_index >= len(document_links)
+                        ):
+                            selected_link_index = None
                     else:
                         scroll_offset = 0
                         selected_link_index = None
@@ -468,6 +481,11 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
                     state_key = file_path if file_path else "stdin"
                     if state_key in buffer_states:
                         scroll_offset, selected_link_index = buffer_states[state_key]
+                        if (
+                            selected_link_index is not None
+                            and selected_link_index >= len(document_links)
+                        ):
+                            selected_link_index = None
                     else:
                         scroll_offset = 0
                         selected_link_index = None
@@ -546,7 +564,7 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
                             max_scroll,
                             max(0, link["line_index"] - (content_height // 2)),
                         )
-                case "\r" | "\n" if selected_link_index is not None:
+                case "\r" | "\n" if selected_link_index is not None and selected_link_index < len(document_links):
                     link = document_links[selected_link_index]
                     url = link["url"]
 
@@ -719,6 +737,16 @@ def main(files: tuple[str, ...], watch: bool, no_color: bool) -> None:
         sys.stdout.flush()
 
 
+def strip_markdown_formatting(text: str) -> str:
+    """Strip basic Markdown inline formatting (bold, italic, code, links) from text."""
+    text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+    text = re.sub(r"(\*\*|__|\*|_)(.*?)\1", r"\2", text)
+    text = re.sub(r"`([^`]+)`", r"\1", text)
+    text = re.sub(r"~~([^~]+)~~", r"\1", text)
+    return text.strip()
+
+
 def parse_headers(markdown_text: str) -> list[dict]:
     """Parse headings from markdown text, returning level, title, and raw line number."""
     headers = []
@@ -735,9 +763,10 @@ def parse_headers(markdown_text: str) -> list[dict]:
         match = re.match(r"^(#{1,6})\s+(.+)$", line)
         if match:
             level = len(match.group(1))
-            title = match.group(2).strip()
+            raw_title = match.group(2).strip()
+            clean_title = strip_markdown_formatting(raw_title)
             headers.append(
-                {"level": level, "title": title, "raw_line_index": line_index}
+                {"level": level, "title": clean_title, "raw_line_index": line_index}
             )
     return headers
 
@@ -900,18 +929,19 @@ def find_header_rendered_line(rendered_lines: list[str], title: str) -> int:
     """Find the rendered line index containing the header title (precise match)."""
     # Box-drawing characters used by rich for headers and margins
     box_chars = " ┃━─┏┓┗┛│┌┐└┘├┤┬┴┼═║╔╗╚╝╠╣╦╩╬"
+    clean_target = strip_markdown_formatting(title).lower()
 
     # Try exact match first (after stripping box characters, hashes, and spaces)
     for index, line in enumerate(rendered_lines):
         plain_line = strip_ansi_codes(line)
-        cleaned_line = plain_line.strip(box_chars + "#")
-        if cleaned_line.lower() == title.lower():
+        cleaned_line = plain_line.strip(box_chars + "#").strip().lower()
+        if cleaned_line == clean_target:
             return index
 
     # Fallback to substring match if exact stripped match isn't found
     for index, line in enumerate(rendered_lines):
         plain_line = strip_ansi_codes(line)
-        if title.lower() in plain_line.lower():
+        if clean_target in plain_line.lower():
             return index
 
     return 0
@@ -1003,12 +1033,15 @@ def draw_screen(
 
     status_right = f"{percent_str} | [q:Quit] [?:Help] "
 
-    available_width = terminal_width - len(status_right) - 2
+    available_width = max(0, terminal_width - len(status_right) - 2)
     if len(status_left) > available_width:
-        status_left = status_left[: available_width - 3] + "..."
+        if available_width > 3:
+            status_left = status_left[: available_width - 3] + "..."
+        else:
+            status_left = status_left[:available_width]
 
     # Format status line with inverted colors
-    padding_length = terminal_width - len(status_left) - len(status_right)
+    padding_length = max(0, terminal_width - len(status_left) - len(status_right))
     if use_color:
         status_line = f"\x1b[7m{status_left}{' ' * padding_length}{status_right}\x1b[0m"
     else:
@@ -1169,15 +1202,19 @@ def read_key(timeout: float | None = None) -> str:
             char_bytes = os.read(file_descriptor, 1)
             if not char_bytes:
                 return ""
-            char = char_bytes.decode("utf-8", errors="ignore")
-            if char == "\x1b":
+            first_byte = char_bytes[0]
+            if first_byte == 0x1B:
                 sequence = ""
                 while True:
-                    read_list_esc, _, _ = select.select([file_descriptor], [], [], 0.02)
+                    read_list_esc, _, _ = select.select(
+                        [file_descriptor], [], [], 0.02
+                    )
                     if read_list_esc:
                         next_char_bytes = os.read(file_descriptor, 1)
                         if next_char_bytes:
-                            next_char = next_char_bytes.decode("utf-8", errors="ignore")
+                            next_char = next_char_bytes.decode(
+                                "utf-8", errors="ignore"
+                            )
                             sequence += next_char
                             if next_char.isalpha() or next_char == "~":
                                 break
@@ -1185,8 +1222,30 @@ def read_key(timeout: float | None = None) -> str:
                             break
                     else:
                         break
-                char += sequence
-            return char
+                return "\x1b" + sequence
+            else:
+                num_bytes = 1
+                if (first_byte & 0xE0) == 0xC0:
+                    num_bytes = 2
+                elif (first_byte & 0xF0) == 0xE0:
+                    num_bytes = 3
+                elif (first_byte & 0xF8) == 0xF0:
+                    num_bytes = 4
+
+                while len(char_bytes) < num_bytes:
+                    read_more, _, _ = select.select(
+                        [file_descriptor], [], [], 0.02
+                    )
+                    if read_more:
+                        more = os.read(
+                            file_descriptor, num_bytes - len(char_bytes)
+                        )
+                        if not more:
+                            break
+                        char_bytes += more
+                    else:
+                        break
+                return char_bytes.decode("utf-8", errors="replace")
     except OSError:
         # Catch signal interrupts like terminal resize (SIGWINCH)
         return ""
