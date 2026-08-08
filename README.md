@@ -40,6 +40,9 @@ md README.md index.md
 md -w README.md
 ```
 
+Leading mapping-style YAML frontmatter enclosed by exact `---` delimiter lines
+is hidden in the rendered view and remains available in raw view.
+
 ## Keybindings
 
 - `j` / `k` or Down / Up Arrows: Scroll down / up by 1 line.

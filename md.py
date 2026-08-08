@@ -24,6 +24,9 @@ import rich.segment
 import rich.syntax
 
 DEFAULT_THEME = "ansi_dark"
+FRONTMATTER_MAPPING_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_-]*:(?:[ \t]+.*)?$"
+)
 
 
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -747,11 +750,43 @@ def strip_markdown_formatting(text: str) -> str:
     return text.strip()
 
 
+def find_leading_frontmatter_end(markdown_text: str) -> int | None:
+    """Return the offset after mapping-shaped leading frontmatter, if present."""
+    source_lines = markdown_text.splitlines(keepends=True)
+    if not source_lines:
+        return None
+
+    opening_delimiter = source_lines[0].rstrip("\r\n").removeprefix("\ufeff")
+    if opening_delimiter != "---":
+        return None
+
+    frontmatter_end_offset = len(source_lines[0])
+    has_mapping_entry = False
+    for source_line in source_lines[1:]:
+        frontmatter_end_offset += len(source_line)
+        source_line_without_ending = source_line.rstrip("\r\n")
+        if source_line_without_ending == "---":
+            return frontmatter_end_offset if has_mapping_entry else None
+        if FRONTMATTER_MAPPING_PATTERN.match(source_line_without_ending):
+            has_mapping_entry = True
+
+    return None
+
+
 def parse_headers(markdown_text: str) -> list[dict]:
     """Parse headings from markdown text, returning level, title, and raw line number."""
     headers = []
     inside_code_block = False
-    for line_index, line in enumerate(markdown_text.splitlines()):
+    markdown_body = markdown_text
+    body_start_line_index = 0
+    frontmatter_end_offset = find_leading_frontmatter_end(markdown_text)
+    if frontmatter_end_offset is not None:
+        frontmatter = markdown_text[:frontmatter_end_offset]
+        markdown_body = markdown_text[frontmatter_end_offset:]
+        body_start_line_index = len(frontmatter.splitlines())
+
+    for body_line_index, line in enumerate(markdown_body.splitlines()):
+        line_index = body_start_line_index + body_line_index
         stripped = line.strip()
         if stripped.startswith("```"):
             inside_code_block = not inside_code_block
@@ -845,10 +880,15 @@ def render_markdown(
     markdown_text: str, width: int, theme: str, use_color: bool = True
 ) -> list[str]:
     """Render markdown to text with ANSI escape codes for the specified width."""
+    renderable_markdown_text = markdown_text
+    frontmatter_end_offset = find_leading_frontmatter_end(markdown_text)
+    if frontmatter_end_offset is not None:
+        renderable_markdown_text = markdown_text[frontmatter_end_offset:]
+
     console = rich.console.Console(
         width=width, force_terminal=use_color, no_color=not use_color
     )
-    markdown_element = IndentedMarkdown(markdown_text, code_theme=theme)
+    markdown_element = IndentedMarkdown(renderable_markdown_text, code_theme=theme)
     with console.capture() as capture:
         console.print(markdown_element)
 
